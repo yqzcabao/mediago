@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -61,6 +62,7 @@ func NewRuntime(cfg *AppConfig) (*Runtime, error) {
 
 	syncAppStoreToCfg(appStore, cfg)
 	ensureDownloadDir(appStore, cfg)
+	ensureDependencyPath(cfg.DepsDir)
 
 	logger.Infof("Loading schemas from: %s", cfg.SchemaPath)
 	schemas, err := schema.LoadSchemasFromJSON(cfg.SchemaPath)
@@ -226,6 +228,29 @@ func exeExt() string {
 		return ".exe"
 	}
 	return ""
+}
+
+// ensureDependencyPath exports the bundled dependency directory to the process
+// PATH before any downloader starts.
+//
+// The downloaders are launched with the inherited environment, and yt-dlp and
+// BBDown look for ffmpeg through PATH only. A container image based on a slim
+// distribution has no system ffmpeg, so without this export the video and audio
+// streams are downloaded but never merged into a single file.
+func ensureDependencyPath(depsDir string) {
+	if strings.TrimSpace(depsDir) == "" {
+		return
+	}
+	current := os.Getenv("PATH")
+	updated := core.PathWithDirectory(current, depsDir)
+	if updated == current {
+		return
+	}
+	if err := os.Setenv("PATH", updated); err != nil {
+		logger.Warnf("Failed to add dependency directory to PATH: %v", err)
+		return
+	}
+	logger.Infof("Dependency directory added to PATH: %s", depsDir)
 }
 
 func getBinaryMap(cfg *AppConfig) map[core.DownloadType]string {

@@ -179,6 +179,44 @@ func TestEnsureDownloadDirCreatesConfiguredDirectory(t *testing.T) {
 	}
 }
 
+func TestEnsureDependencyPathExportsBundledTools(t *testing.T) {
+	withDiscardRuntimeLogger(t)
+	depsDir := filepath.Join(t.TempDir(), "deps")
+	basePath := strings.Join([]string{filepath.Join("/usr", "bin"), filepath.Join("/bin")}, string(os.PathListSeparator))
+	t.Setenv("PATH", basePath)
+
+	ensureDependencyPath(depsDir)
+
+	want := depsDir + string(os.PathListSeparator) + basePath
+	if got := os.Getenv("PATH"); got != want {
+		t.Fatalf("PATH = %q, want %q", got, want)
+	}
+}
+
+func TestEnsureDependencyPathIgnoresBlankDirectory(t *testing.T) {
+	withDiscardRuntimeLogger(t)
+	basePath := filepath.Join("/usr", "bin")
+	t.Setenv("PATH", basePath)
+
+	ensureDependencyPath("   ")
+
+	if got := os.Getenv("PATH"); got != basePath {
+		t.Fatalf("PATH = %q, want the original value %q", got, basePath)
+	}
+}
+
+func withDiscardRuntimeLogger(t *testing.T) {
+	t.Helper()
+	previousLogger := logger.Logger
+	previousSugar := logger.Sugar
+	logger.Logger = zap.NewNop()
+	logger.Sugar = logger.Logger.Sugar()
+	t.Cleanup(func() {
+		logger.Logger = previousLogger
+		logger.Sugar = previousSugar
+	})
+}
+
 func containsAnyRuntimeLogSecret(value string, secrets []string) bool {
 	for _, secret := range secrets {
 		containsSecret := strings.Contains(value, secret)

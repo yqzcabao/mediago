@@ -205,9 +205,49 @@ func TestBuildArgsUsesBundledFFmpeg(t *testing.T) {
 	}}
 
 	args := d.buildArgs(DownloadParams{Type: TypeM3U8}, s)
-	want := []string{"--ffmpeg-binary-path", "/opt/mediago/deps/ffmpeg"}
+	want := []string{"--ffmpeg-binary-path", filepath.Join("/opt", "mediago", "deps", FFmpegBinaryName)}
 	if !slices.Equal(args, want) {
 		t.Fatal("unexpected ffmpeg binary arguments")
+	}
+}
+
+func TestBuildArgsPassesBundledFFmpegToYTDLP(t *testing.T) {
+	depsDir := filepath.Join("/app", "deps")
+	d := &DownloaderSvc{
+		binMap: map[DownloadType]string{
+			TypeYoutube: filepath.Join(depsDir, BinaryNames[TypeYoutube]),
+			TypeM3U8:    filepath.Join(depsDir, BinaryNames[TypeM3U8]),
+		},
+		cfg: testDownloaderConfig{localDir: "/downloads"},
+	}
+	contractSchema, ok := schema.DefaultSchemas().GetByType(string(TypeYoutube))
+	if !ok {
+		t.Fatal("default yt-dlp schema not found")
+	}
+
+	args := d.buildArgs(DownloadParams{
+		Type: TypeYoutube,
+		URL:  "https://example.com/watch?v=1",
+		Name: "clip",
+	}, contractSchema)
+
+	index := slices.Index(args, "--ffmpeg-location")
+	if index < 0 || index+1 >= len(args) {
+		t.Fatalf("expected --ffmpeg-location in %v", args)
+	}
+	if want := filepath.Join(depsDir, FFmpegBinaryName); args[index+1] != want {
+		t.Fatalf("--ffmpeg-location = %q, want %q", args[index+1], want)
+	}
+}
+
+func TestBuildArgsOmitsFFmpegWhenDepsDirUnknown(t *testing.T) {
+	d := &DownloaderSvc{}
+	s := schema.Schema{Args: map[string]schema.ArgSpec{
+		"ffmpegBinaryPath": {ArgsName: []string{"--ffmpeg-location"}},
+	}}
+
+	if args := d.buildArgs(DownloadParams{Type: TypeYoutube}, s); len(args) != 0 {
+		t.Fatalf("expected no ffmpeg argument, got %v", args)
 	}
 }
 

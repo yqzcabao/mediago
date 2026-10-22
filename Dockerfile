@@ -104,6 +104,11 @@ RUN mkdir -p /app/deps && \
 
 COPY THIRD_PARTY_NOTICES.md /app/THIRD_PARTY_NOTICES.md
 
+# Bundled helpers live in /app/deps. The base image has no system ffmpeg, and
+# downloaders resolve it through PATH, so the directory must be exported or
+# separate video/audio streams never get merged into a single file.
+ENV PATH="/app/deps:${PATH}"
+
 RUN mkdir -p /app/mediago/data /app/mediago/logs /app/mediago/downloads
 
 # Entrypoint script — isolates the invocation flags from the Dockerfile
