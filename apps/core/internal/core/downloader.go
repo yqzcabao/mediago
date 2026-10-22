@@ -177,12 +177,8 @@ func (d *DownloaderSvc) buildArgs(p DownloadParams, s schema.Schema) []string {
 			}
 
 		case "ffmpegBinaryPath":
-			if m3u8Binary := d.binMap[TypeM3U8]; m3u8Binary != "" {
-				ffmpegName := FFmpegBinaryName
-				if strings.EqualFold(filepath.Ext(m3u8Binary), ".exe") {
-					ffmpegName += ".exe"
-				}
-				pushKV(spec.ArgsName, filepath.Join(filepath.Dir(m3u8Binary), ffmpegName))
+			if ffmpegPath := d.ffmpegBinaryPath(p.Type); ffmpegPath != "" {
+				pushKV(spec.ArgsName, ffmpegPath)
 			}
 
 		case "__common__":
@@ -202,6 +198,27 @@ func (d *DownloaderSvc) buildArgs(p DownloadParams, s schema.Schema) []string {
 
 func isYTDLPType(downloadType DownloadType) bool {
 	return downloadType == TypeYoutube || downloadType == TypeXiaohongshu
+}
+
+// ffmpegBinaryPath returns the bundled ffmpeg that sits next to the downloader
+// binary in the dependency directory.
+//
+// Downloaders that mux separate video and audio streams need ffmpeg. Passing it
+// explicitly keeps merging working when PATH does not contain the dependency
+// directory, which is the normal situation inside a container image.
+func (d *DownloaderSvc) ffmpegBinaryPath(downloadType DownloadType) string {
+	binary := d.binMap[downloadType]
+	if binary == "" {
+		binary = d.binMap[TypeM3U8]
+	}
+	if binary == "" {
+		return ""
+	}
+	ffmpegName := FFmpegBinaryName
+	if strings.EqualFold(filepath.Ext(binary), ".exe") {
+		ffmpegName += ".exe"
+	}
+	return filepath.Join(filepath.Dir(binary), ffmpegName)
 }
 
 func appendYTDLPCookieFile(args []string, p DownloadParams) ([]string, func(), error) {

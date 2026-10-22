@@ -41,11 +41,12 @@ func ytDLPSchema(downloadType string) Schema {
 	return Schema{
 		Type: downloadType,
 		Args: map[string]ArgSpec{
-			"url":      {ArgsName: []string{}},
-			"localDir": {ArgsName: []string{"-P"}},
-			"name":     {ArgsName: []string{"-o"}, Postfix: ".%(ext)s"},
-			"headers":  {ArgsName: []string{"--add-header"}},
-			"proxy":    {ArgsName: []string{"--proxy"}},
+			"url":              {ArgsName: []string{}},
+			"localDir":         {ArgsName: []string{"-P"}},
+			"name":             {ArgsName: []string{"-o"}, Postfix: ".%(ext)s"},
+			"headers":          {ArgsName: []string{"--add-header"}},
+			"proxy":            {ArgsName: []string{"--proxy"}},
+			"ffmpegBinaryPath": {ArgsName: []string{"--ffmpeg-location"}},
 			"__common__": {ArgsName: []string{
 				"--no-mtime",
 				"--progress",
