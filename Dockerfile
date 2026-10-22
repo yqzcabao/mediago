@@ -80,15 +80,41 @@ RUN cd apps/core && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /out/mediago-core ./cmd/server
 
+# ===== Stage: static ffmpeg =====
+# The bundled static ffmpeg is a johnvansickle build, and that build segfaults
+# while demuxing MPEG-TS (reproduced with both the pinned 6.0 and the current
+# 7.0.2 release), which makes N_m3u8DL-RE silently skip the HLS merge. The BtbN
+# build handles the same streams. Shipping one static binary also keeps the ~200
+# distribution packages that `apt-get install ffmpeg` pulls in out of the image.
+FROM debian:bookworm-slim AS ffmpeg-static
+
+ARG TARGETARCH
+ARG FFMPEG_RELEASE=autobuild-2026-10-21-13-06
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl xz-utils && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) asset="ffmpeg-n9.0.2-31-gc89d6ee1ca-linux64-gpl-9.0.tar.xz" ;; \
+      arm64) asset="ffmpeg-n9.0.2-31-gc89d6ee1ca-linuxarm64-gpl-9.0.tar.xz" ;; \
+      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    base="https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_RELEASE}"; \
+    cd /tmp; \
+    curl -fsSL -o "${asset}" "${base}/${asset}"; \
+    curl -fsSL -o checksums.sha256 "${base}/checksums.sha256"; \
+    grep " ${asset}$" checksums.sha256 | sha256sum -c -; \
+    tar -xJf "${asset}"; \
+    mkdir -p /out; \
+    install -m 0755 ffmpeg-*/bin/ffmpeg /out/ffmpeg
+
 # ===== Stage 3: Runtime =====
 FROM debian:bookworm-slim
 
-# ffmpeg comes from the distribution rather than the bundled static build: the
-# pinned linux static binary (ffmpeg 6.0) segfaults while demuxing MPEG-TS, so
-# N_m3u8DL-RE silently fails to merge HLS segments and leaves the download split
-# across segment files. The distribution build handles those streams correctly.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates libicu72 ffmpeg && \
+    apt-get install -y --no-install-recommends ca-certificates libicu72 && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -97,8 +123,7 @@ WORKDIR /app
 COPY --from=go-builder /out/mediago-core /usr/local/bin/mediago-core
 
 # Third-party tools — copy from the platform-specific directory. The bundled
-# ffmpeg is skipped because the pinned linux static build is replaced by the
-# distribution build below; shipping both would only add dead weight.
+# ffmpeg is skipped because it is replaced by the working static build below.
 ARG TARGETARCH
 COPY --from=node-builder /src/.deps/linux-* /app/deps-tmp/
 RUN mkdir -p /app/deps && \
@@ -106,9 +131,13 @@ RUN mkdir -p /app/deps && \
       find /app/deps-tmp -type f ! -name ffmpeg -exec cp {} /app/deps/ \; ; \
     fi && \
     chmod +x /app/deps/* 2>/dev/null || true && \
-    rm -rf /app/deps-tmp && \
-    ln -sf /usr/bin/ffmpeg /app/deps/ffmpeg && \
-    ln -sf /usr/bin/ffprobe /app/deps/ffprobe
+    rm -rf /app/deps-tmp
+
+# Every ffmpeg consumer resolves it through the dependency directory: the m3u8
+# downloader's --ffmpeg-binary-path, the converter and the ffprobe companion
+# lookup. ffprobe itself is not shipped; duration probing falls back to reading
+# `ffmpeg -i` output.
+COPY --from=ffmpeg-static --chmod=0755 /out/ffmpeg /app/deps/ffmpeg
 
 COPY THIRD_PARTY_NOTICES.md /app/THIRD_PARTY_NOTICES.md
 
