@@ -83,8 +83,12 @@ RUN cd apps/core && \
 # ===== Stage 3: Runtime =====
 FROM debian:bookworm-slim
 
+# ffmpeg comes from the distribution rather than the bundled static build: the
+# pinned linux static binary (ffmpeg 6.0) segfaults while demuxing MPEG-TS, so
+# N_m3u8DL-RE silently fails to merge HLS segments and leaves the download split
+# across segment files. The distribution build handles those streams correctly.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates libicu72 && \
+    apt-get install -y --no-install-recommends ca-certificates libicu72 ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -92,15 +96,19 @@ WORKDIR /app
 # Core binary
 COPY --from=go-builder /out/mediago-core /usr/local/bin/mediago-core
 
-# Third-party tools — copy from the platform-specific directory
+# Third-party tools — copy from the platform-specific directory. The bundled
+# ffmpeg is skipped because the pinned linux static build is replaced by the
+# distribution build below; shipping both would only add dead weight.
 ARG TARGETARCH
 COPY --from=node-builder /src/.deps/linux-* /app/deps-tmp/
 RUN mkdir -p /app/deps && \
     if [ -d /app/deps-tmp ]; then \
-      find /app/deps-tmp -type f -exec cp {} /app/deps/ \; ; \
+      find /app/deps-tmp -type f ! -name ffmpeg -exec cp {} /app/deps/ \; ; \
     fi && \
     chmod +x /app/deps/* 2>/dev/null || true && \
-    rm -rf /app/deps-tmp
+    rm -rf /app/deps-tmp && \
+    ln -sf /usr/bin/ffmpeg /app/deps/ffmpeg && \
+    ln -sf /usr/bin/ffprobe /app/deps/ffprobe
 
 COPY THIRD_PARTY_NOTICES.md /app/THIRD_PARTY_NOTICES.md
 
